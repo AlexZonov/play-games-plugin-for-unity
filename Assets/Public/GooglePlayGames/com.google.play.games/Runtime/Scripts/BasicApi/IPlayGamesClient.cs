@@ -401,6 +401,51 @@ namespace GooglePlayGames.BasicApi
       /// <returns>The events client.</returns>
       Events.IEventsClient GetEventsClient();
 
+      /// <summary>
+      /// Records a single player game event.
+      /// </summary>
+      /// <param name="playerGameEvent">The event to record.</param>
+      void RecordEvent(PlayerGameEvent playerGameEvent);
+
+      /// <summary>
+      /// Records a single player game event immediately.
+      /// </summary>
+      /// <remarks>If the operation succeeds, the callback
+      /// will be invoked on the game thread with true. If the operation fails, the
+      /// callback will be invoked with false. This operation will immediately fail if
+      /// the user is not authenticated (i.e. the callback will immediately be invoked with
+      /// false).
+      /// </remarks>
+      /// <param name="playerGameEvent">The event to record.</param>
+      /// <param name="callback">Callback used to indicate whether the operation
+      /// succeeded or failed.</param>
+      void RecordEventImmediate(PlayerGameEvent playerGameEvent, Action<bool> callback);
+
+      /// <summary>
+      /// Records a list of player game events.
+      /// </summary>
+      /// <param name="events">The list of events to record.</param>
+      void RecordEvents(List<PlayerGameEvent> events);
+
+      /// <summary>
+      /// Records a list of player game events immediately.
+      /// </summary>
+      /// <remarks>If the operation succeeds, the callback
+      /// will be invoked on the game thread with true. If the operation fails, the
+      /// callback will be invoked with false. This operation will immediately fail if
+      /// the user is not authenticated (i.e. the callback will immediately be invoked with
+      /// false).
+      /// </remarks>
+      /// <param name="events">The list of events to record.</param>
+      /// <param name="callback">Callback used to indicate whether the operation
+      /// succeeded or failed.</param>
+      void RecordEventsImmediate(List<PlayerGameEvent> events, Action<bool> callback);
+
+      /// <summary>
+      /// Requests an immediate upload of any pending player game events.
+      /// </summary>
+      void RequestEventsUpload();
+
       IUserProfile[] GetFriends();
     }
 }

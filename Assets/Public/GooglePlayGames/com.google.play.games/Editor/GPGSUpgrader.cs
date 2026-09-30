@@ -28,6 +28,8 @@ namespace GooglePlayGames.Editor
     [InitializeOnLoad]
     public class GPGSUpgrader
     {
+        static bool sMigrated = false;
+
         /// <summary>
         /// Initializes static members of the <see cref="GooglePlayGames.GPGSUpgrader"/> class.
         /// </summary>
@@ -36,13 +38,43 @@ namespace GooglePlayGames.Editor
             if (EditorApplication.isPlayingOrWillChangePlaymode)
                 return;
 
+            // Normal interactive path: wait until AssetDatabase is fully idle
+            // (no import worker, no compile) before touching it.
+            EditorApplication.delayCall += RunMigration;
+        }
+
+        static void RunMigration()
+        {
+            if (EditorApplication.isCompiling || EditorApplication.isUpdating)
+            {
+                EditorApplication.delayCall += RunMigration; // retry next tick
+                return;
+            }
+
+            DoMigrate();
+        }
+
+        // Call this directly from any build/CI entry point
+        // Safe to call multiple times — idempotent.
+        public static void EnsureMigrated()
+        {
+            DoMigrate();
+        }
+
+        static void DoMigrate()
+        {
+            if (sMigrated) return;
+
             GPGSProjectSettings.Instance.Set(GPGSUtil.LASTUPGRADEKEY, PluginVersion.VersionKey);
             GPGSProjectSettings.Instance.Set(GPGSUtil.PLUGINVERSIONKEY, PluginVersion.VersionString);
             GPGSProjectSettings.Instance.Save();
 
+            // Also migrates legacy settings into PlayGamesSettings.asset.
             GPGSUtil.UpdateGameInfo();
 
             AssetDatabase.Refresh();
+
+            sMigrated = true;
         }
     }
 }

@@ -106,7 +106,7 @@ namespace GooglePlayGames.Editor
         private const string RootFolderName = "com.google.play.games";
 
         /// <summary>
-        /// The root path of the Google Play Games plugin
+        /// The root path of the Google Play Games plugin.
         /// </summary>
         public static string RootPath
         {
@@ -291,7 +291,7 @@ namespace GooglePlayGames.Editor
         /// <param name="s">the string to test.</param>
         public static bool LooksLikeValidClientId(string s)
         {
-            return s.EndsWith(".googleusercontent.com");
+            return new System.Text.RegularExpressions.Regex(@"^[a-zA-Z0-9\-\.]+\.googleusercontent\.com$").IsMatch(s);
         }
 
         /// <summary>
@@ -349,22 +349,6 @@ namespace GooglePlayGames.Editor
             bool doneSetup = true;
 #if UNITY_ANDROID
             doneSetup = GPGSProjectSettings.Instance.GetBool(ANDROIDSETUPDONEKEY, false);
-            // check gameinfo
-            if (File.Exists(GameInfoPath))
-            {
-                string contents = ReadFile(GameInfoPath);
-                if (contents.Contains(APPIDPLACEHOLDER))
-                {
-                    Debug.Log("GameInfo not initialized with AppId.  " +
-                              "Run Window > Google Play Games > Setup > Android Setup...");
-                    return false;
-                }
-            }
-            else
-            {
-                Debug.Log("GameInfo.cs does not exist.  Run Window > Google Play Games > Setup > Android Setup...");
-                return false;
-            }
 #endif
 
             return doneSetup;
@@ -492,6 +476,11 @@ namespace GooglePlayGames.Editor
         /// <param name="resourceKeys">Resource keys.</param>
         public static void WriteResourceIds(string classDirectory, string className, Hashtable resourceKeys)
         {
+            // Play Console resource IDs are short Base64URL-ish tokens. Anything else
+            // is either corrupt or hostile - refuse to emit it into compiled source.
+            System.Text.RegularExpressions.Regex safeResourceValue =
+                new System.Text.RegularExpressions.Regex(@"\A[A-Za-z0-9_\-]{1,64}\z");
+
             string constantsValues = string.Empty;
             string[] parts = className.Split('.');
             string dirName = string.Join("/",parts.Prepend(string.IsNullOrEmpty(classDirectory) ? "Assets" : classDirectory));
@@ -502,8 +491,15 @@ namespace GooglePlayGames.Editor
             foreach (DictionaryEntry ent in resourceKeys)
             {
                 string key = MakeIdentifier((string) ent.Key);
+                string val = (string) ent.Value;
+                if (!safeResourceValue.IsMatch(val))
+                {
+                    Alert("Resource value for '" + key + "' contains unexpected characters "
+                        + "and was skipped. Please copy the resources directly from Play Console.");
+                    continue;
+                }
                 constantsValues += "        public const string " +
-                                   key + " = \"" + ent.Value + "\"; // <GPGSID>\n";
+                                   key + " = \"" + val + "\"; // <GPGSID>\n";
             }
 
             string namespaceStart = string.IsNullOrEmpty(nameSpace) ? "namespace " + nameSpace + "\n{" : string.Empty;
@@ -532,6 +528,44 @@ namespace GooglePlayGames.Editor
             }
 
             GPGSUtil.WriteFile(GameInfoPath, fileBody);
+
+            // Keep PlayGamesSettings.asset (upstream 2.2+ settings store) in sync.
+            string appId = GPGSProjectSettings.Instance.Get(GPGSUtil.APPIDKEY, string.Empty);
+            string webClientId = GPGSProjectSettings.Instance.Get(GPGSUtil.WEBCLIENTIDKEY, string.Empty);
+            string nearbyServiceId = GPGSProjectSettings.Instance.Get(GPGSUtil.SERVICEIDKEY, string.Empty);
+
+            string resDir = "Assets/GooglePlayGames/Resources";
+            string assetPath = resDir + "/PlayGamesSettings.asset";
+
+            try
+            {
+                PlayGamesSettings settings = AssetDatabase.LoadAssetAtPath<PlayGamesSettings>(assetPath);
+                if (settings == null)
+                {
+                    if (!Directory.Exists(resDir))
+                    {
+                        Directory.CreateDirectory(resDir);
+                    }
+                    settings = ScriptableObject.CreateInstance<PlayGamesSettings>();
+                    AssetDatabase.CreateAsset(settings, assetPath);
+                }
+
+                if (settings.AppId != appId || settings.WebClientId != webClientId ||
+                    settings.NearbyServiceId != nearbyServiceId)
+                {
+                    settings.AppId = appId;
+                    settings.WebClientId = webClientId;
+                    settings.NearbyServiceId = nearbyServiceId;
+                    EditorUtility.SetDirty(settings);
+                }
+
+                // Save only this asset (not SaveAssets): UpdateGameInfo runs on every domain reload in this fork.
+                AssetDatabase.SaveAssetIfDirty(settings);
+            }
+            catch (System.Exception e)
+            {
+                UnityEngine.Debug.LogError("GPGS: Failed to save PlayGamesSettings.asset: " + e.Message);
+            }
         }
 
         /// <summary>

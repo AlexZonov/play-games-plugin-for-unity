@@ -11,7 +11,7 @@
 //  distributed under the License is distributed on an "AS IS" BASIS,
 //  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 //  See the License for the specific language governing permissions and
-//    limitations under the License.
+//  limitations under the License.
 // </copyright>
 
 #if UNITY_ANDROID
@@ -48,7 +48,7 @@ namespace GooglePlayGames.Android
         private IUserProfile[] mFriends = new IUserProfile[0];
         private LoadFriendsStatus mLastLoadFriendsStatus = LoadFriendsStatus.Unknown;
 
-        AndroidJavaClass mGamesClass = new AndroidJavaClass("com.google.android.gms.games.PlayGames");
+        AndroidJavaClass mGamesClass;
         private static string TasksClassName = "com.google.android.gms.tasks.Tasks";
 
         private AndroidJavaObject mFriendsResolutionException = null;
@@ -59,6 +59,7 @@ namespace GooglePlayGames.Android
 
         internal AndroidClient()
         {
+            mGamesClass = new AndroidJavaClass("com.google.android.gms.games.PlayGames");
             PlayGamesHelperObject.CreateObject();
         }
 
@@ -270,7 +271,8 @@ namespace GooglePlayGames.Android
             {
                 AndroidTaskUtils.AddOnSuccessListener<AndroidJavaObject>(
                     task,
-                    recallAccess => {
+                    recallAccess =>
+                    {
                         var sessionId = recallAccess.Call<string>("getSessionId");
                         callback(new RecallAccess(sessionId));
                     }
@@ -919,14 +921,14 @@ namespace GooglePlayGames.Android
                     long timestamp = leaderboardScore.Call<long>("getTimestampMillis");
                     System.DateTime date = AndroidJavaConverter.ToDateTime(timestamp);
 
-                    ulong rank = (ulong) leaderboardScore.Call<long>("getRank");
+                    ulong rank = (ulong)leaderboardScore.Call<long>("getRank");
                     string scoreHolderId = "";
                     using (var scoreHolder = leaderboardScore.Call<AndroidJavaObject>("getScoreHolder"))
                     {
                         scoreHolderId = scoreHolder.Call<string>("getPlayerId");
                     }
 
-                    ulong score = (ulong) leaderboardScore.Call<long>("getRawScore");
+                    ulong score = (ulong)leaderboardScore.Call<long>("getRawScore");
                     string metadata = leaderboardScore.Call<string>("getScoreTag");
 
                     leaderboardScoreData.AddScore(new PlayGamesScore(date, leaderboardId,
@@ -947,14 +949,14 @@ namespace GooglePlayGames.Android
                 if (variant.Call<bool>("hasPlayerInfo"))
                 {
                     System.DateTime date = AndroidJavaConverter.ToDateTime(0);
-                    ulong rank = (ulong) variant.Call<long>("getPlayerRank");
-                    ulong score = (ulong) variant.Call<long>("getRawPlayerScore");
+                    ulong rank = (ulong)variant.Call<long>("getPlayerRank");
+                    ulong score = (ulong)variant.Call<long>("getRawPlayerScore");
                     string metadata = variant.Call<string>("getPlayerScoreTag");
                     leaderboardScoreData.PlayerScore = new PlayGamesScore(date, leaderboardId,
                         rank, mUser.id, score, metadata);
                 }
 
-                leaderboardScoreData.ApproximateCount = (ulong) variant.Call<long>("getNumScores");
+                leaderboardScoreData.ApproximateCount = (ulong)variant.Call<long>("getNumScores");
             }
 
             return leaderboardScoreData;
@@ -1037,6 +1039,220 @@ namespace GooglePlayGames.Android
         {
             return mGamesClass.CallStatic<AndroidJavaObject>("getRecallClient",
                 AndroidHelperFragment.GetActivity());
+        }
+
+        private AndroidJavaObject getGameStatsClient()
+        {
+            return mGamesClass.CallStatic<AndroidJavaObject>("getGameStatsClient",
+                AndroidHelperFragment.GetActivity());
+        }
+
+        private AndroidJavaObject ToJavaPlayerGameEvent(PlayerGameEvent playerGameEvent)
+        {
+            // The Builder class name
+            string builderClassName = "com.google.android.gms.games.playergameevent.PlayerGameEvent$Builder";
+
+            // Instantiate the Builder using its constructor, passing the event name
+            using (var eventBuilder = new AndroidJavaObject(builderClassName, playerGameEvent.EventName))
+            {
+                foreach (var property in playerGameEvent.EventProperties)
+                {
+                    string key = property.Key;
+                    object value = property.Value;
+                    AndroidJavaObject chainedResult = null;
+
+                    // Property addition calls remain the same
+                    if (value is long longValue)
+                    {
+                        chainedResult = eventBuilder.Call<AndroidJavaObject>("addProperty", key, longValue);
+                    }
+                    else if (value is double doubleValue)
+                    {
+                        chainedResult = eventBuilder.Call<AndroidJavaObject>("addProperty", key, doubleValue);
+                    }
+                    else if (value is string stringValue)
+                    {
+                        chainedResult = eventBuilder.Call<AndroidJavaObject>("addProperty", key, stringValue);
+                    }
+                    else if (value is bool boolValue)
+                    {
+                        chainedResult = eventBuilder.Call<AndroidJavaObject>("addProperty", key, boolValue);
+                    }
+                    else if (value is TimeSpan timeSpanValue)
+                    {
+                        long seconds = timeSpanValue.Ticks / 10000000L;
+                        int nanos = (int)((timeSpanValue.Ticks % 10000000L) * 100);
+                        using (var playDuration = new AndroidJavaObject(
+                            "com.google.android.gms.games.playergameevent.PlayDuration", seconds, nanos))
+                        {
+                            chainedResult = eventBuilder.Call<AndroidJavaObject>("addProperty", key, playDuration);
+                        }
+                    }
+                    else
+                    {
+                        OurUtils.Logger.w("Unsupported property type in PlayerGameEvent: " + value.GetType());
+                    }
+
+                    if (chainedResult != null)
+                    {
+                        chainedResult.Dispose();
+                    }
+                }
+
+                // The EventTimeMillis is set on the Android side when built
+                return eventBuilder.Call<AndroidJavaObject>("build");
+            }
+        }
+
+        private AndroidJavaObject ToJavaPlayerGameEventList(List<PlayerGameEvent> events)
+        {
+            var javaList = new AndroidJavaObject("java.util.ArrayList");
+            foreach (var playerGameEvent in events)
+            {
+                using (var javaEvent = ToJavaPlayerGameEvent(playerGameEvent))
+                {
+                    javaList.Call<bool>("add", javaEvent);
+                }
+            }
+            return javaList;
+        }
+
+        public void RecordEvent(PlayerGameEvent playerGameEvent)
+        {
+            if (!IsAuthenticated())
+            {
+                OurUtils.Logger.w("Not authenticated, skipping RecordEvent");
+                return;
+            }
+
+            using (var client = getGameStatsClient())
+            using (var javaEvent = ToJavaPlayerGameEvent(playerGameEvent))
+            {
+                if (javaEvent != null)
+                {
+                    client.Call("recordEvent", javaEvent);
+                }
+            }
+        }
+
+        public void RecordEventImmediate(PlayerGameEvent playerGameEvent, Action<bool> callback)
+        {
+            callback = AsOnGameThreadCallback(callback);
+            if (!IsAuthenticated())
+            {
+                OurUtils.Logger.w("Not authenticated, skipping RecordEventImmediate");
+                callback?.Invoke(false);
+                return;
+            }
+
+            if (playerGameEvent == null)
+            {
+                OurUtils.Logger.w("playerGameEvent is null, skipping RecordEventImmediate");
+                callback?.Invoke(false);
+                return;
+            }
+
+            using (var client = getGameStatsClient())
+            using (var javaEvent = ToJavaPlayerGameEvent(playerGameEvent))
+            {
+                if (javaEvent == null)
+                {
+                    OurUtils.Logger.w("Failed to convert PlayerGameEvent to Java object");
+                    callback?.Invoke(false);
+                    return;
+                }
+
+                using (var task = client.Call<AndroidJavaObject>("recordEventImmediate", javaEvent))
+                {
+                    AndroidTaskUtils.AddOnSuccessListener<AndroidJavaObject>(
+                        task,
+                        _ => callback?.Invoke(true));
+                    AndroidTaskUtils.AddOnFailureListener(
+                        task,
+                        exception =>
+                        {
+                            OurUtils.Logger.e("recordEventImmediate failed: " +
+                                (exception != null ? exception.Call<string>("toString") : "unknown error"));
+                            callback?.Invoke(false);
+                        });
+                }
+            }
+        }
+
+        public void RecordEvents(List<PlayerGameEvent> events)
+        {
+            if (!IsAuthenticated())
+            {
+                OurUtils.Logger.w("Not authenticated, skipping RecordEvents");
+                return;
+            }
+
+            using (var client = getGameStatsClient())
+            using (var javaEvents = ToJavaPlayerGameEventList(events))
+            {
+                if (javaEvents != null)
+                {
+                    client.Call("recordEvents", javaEvents);
+                }
+            }
+        }
+
+        public void RecordEventsImmediate(List<PlayerGameEvent> events, Action<bool> callback)
+        {
+            callback = AsOnGameThreadCallback(callback);
+            if (!IsAuthenticated())
+            {
+                OurUtils.Logger.w("Not authenticated, skipping RecordEventsImmediate");
+                callback?.Invoke(false);
+                return;
+            }
+
+            if (events == null)
+            {
+                OurUtils.Logger.w("events is null, skipping RecordEventsImmediate");
+                callback?.Invoke(false);
+                return;
+            }
+
+            using (var client = getGameStatsClient())
+            using (var javaEvents = ToJavaPlayerGameEventList(events))
+            {
+                if (javaEvents == null)
+                {
+                    OurUtils.Logger.w("Failed to convert PlayerGameEvents to Java list");
+                    callback?.Invoke(false);
+                    return;
+                }
+
+                using (var task = client.Call<AndroidJavaObject>("recordEventsImmediate", javaEvents))
+                {
+                    AndroidTaskUtils.AddOnSuccessListener<AndroidJavaObject>(
+                        task,
+                        _ => callback?.Invoke(true));
+                    AndroidTaskUtils.AddOnFailureListener(
+                        task,
+                        exception =>
+                        {
+                            OurUtils.Logger.e("recordEventsImmediate failed: " +
+                                (exception != null ? exception.Call<string>("toString") : "unknown error"));
+                            callback?.Invoke(false);
+                        });
+                }
+            }
+        }
+
+        public void RequestEventsUpload()
+        {
+            if (!IsAuthenticated())
+            {
+                OurUtils.Logger.w("Not authenticated, skipping RequestEventsUpload");
+                return;
+            }
+
+            using (var client = getGameStatsClient())
+            {
+                client.Call("requestEventsUpload");
+            }
         }
     }
 }

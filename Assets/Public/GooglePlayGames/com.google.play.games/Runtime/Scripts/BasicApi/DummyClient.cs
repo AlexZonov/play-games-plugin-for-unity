@@ -483,6 +483,54 @@ namespace GooglePlayGames.BasicApi
         }
 
         /// <summary>
+        /// Records a single player game event.
+        /// </summary>
+        /// <param name="playerGameEvent">The event to record.</param>
+        public void RecordEvent(PlayerGameEvent playerGameEvent)
+        {
+            LogUsage();
+        }
+
+        /// <summary>
+        /// Records a single player game event immediately.
+        /// </summary>
+        /// <param name="playerGameEvent">The event to record.</param>
+        /// <param name="callback">Callback used to indicate whether the operation succeeded.</param>
+        public void RecordEventImmediate(PlayerGameEvent playerGameEvent, Action<bool> callback)
+        {
+            LogUsage();
+            callback?.Invoke(false);
+        }
+        
+        /// <summary>
+        /// Records a list of player game events.
+        /// </summary>
+        /// <param name="events">The list of events to record.</param>
+        public void RecordEvents(List<PlayerGameEvent> events)
+        {
+            LogUsage();
+        }
+
+        /// <summary>
+        /// Records a list of player game events immediately.
+        /// </summary>
+        /// <param name="events">The list of events to record.</param>
+        /// <param name="callback">Callback used to indicate whether the operation succeeded.</param>
+        public void RecordEventsImmediate(List<PlayerGameEvent> events, Action<bool> callback)
+        {
+            LogUsage();
+            callback?.Invoke(false);
+        }
+        
+        /// <summary>
+        /// Requests an immediate upload of any pending player game events.
+        /// </summary>
+        public void RequestEventsUpload()
+        {
+            LogUsage();
+        }
+
+        /// <summary>
         /// Logs method usage for debugging purposes.
         /// </summary>
         private static void LogUsage()
