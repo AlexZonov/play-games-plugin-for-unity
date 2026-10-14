@@ -230,6 +230,11 @@ namespace GooglePlayGames.Editor
         public static void WriteFile(string file, string body)
         {
             file = SlashesToPlatformSeparator(file);
+            if (File.Exists(file) && File.ReadAllText(file) == body)
+            {
+                return;
+            }
+
             DirectoryInfo dir = Directory.GetParent(file);
             dir.Create();
             using (var wr = new StreamWriter(file, false))
